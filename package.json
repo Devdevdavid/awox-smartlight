@@ -1,16 +1,12 @@
 {
-  "name": "awox-smartlight",
-  "version": "1.2.0",
-  "description": "Control Awox smartlight from nodejs",
+  "name": "awox-smartlight-dave",
+  "version": "1.2.1",
+  "description": "Control Awox smartlight from nodejs (Dave version)",
   "main": "src/lib.js",
   "scripts": {
     "release": "npm run build && npm version patch && npm publish",
     "postversion": "git push && git push --tags",
-    "build": "babel src/lib.js > build/lib.js && babel src/cli.js > build/cli.js",
     "doc": "jsdoc2md src/lib.js"
-  },
-  "bin": {
-    "awoxlight": "src/cli.js"
   },
   "repository": {
     "type": "git",
@@ -23,10 +19,6 @@
   },
   "homepage": "https://github.com/dragouf/awox-smartlight#readme",
   "devDependencies": {
-    "babel-cli": "^6.18.0",
-    "babel-preset-latest": "^6.16.0",
-    "babel-preset-stage-2": "^6.24.1",
-    "jsdoc-to-markdown": "^3.0.0"
   },
   "keywords": [
     "awox",
@@ -35,14 +27,7 @@
     "BLE"
   ],
   "dependencies": {
-    "noble-extended": "^0.0.6",
     "colorsys": "^1.0.10",
     "yargs": "^6.6.0"
-  },
-  "babel": {
-    "presets": [
-      "latest",
-      "stage-2"
-    ]
   }
 }

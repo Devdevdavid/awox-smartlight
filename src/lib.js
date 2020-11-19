@@ -1,5 +1,4 @@
-"use strict";
-var nobleExtended = require('noble-extended');
+var exec = require('child_process').exec;
 
 const HEADER = [0xAA, 0x0A, 0xFC, 0x3A, 0x86, 0x01];
 const TAIL = [0x0D];
@@ -14,46 +13,18 @@ const SEQUENCE_RGB_RESET = HEADER.concat([0x0D, 0x06, 0x01, 0x20, 0x30, 0x40, 0x
 
 module.exports = class AwoxSmartLight {
   constructor (lampMac, logger) { /*"d03972b84926"*/
-    this.isScanning = false;
     this.lampMac = lampMac;
-    this.timeout = null;
     this.logger = logger || console.log;
-    this.commandsQueue = [];
-    this.lightCommandDebounce = this._debounce(this._lightCommand.bind(this), 1000);
-  }
-
-  _lightCommand() {
-    if(this.commandsQueue.length === 0) {
-      this.logger("No command to send...");
-      return;
-    }
-
-    var noble = new nobleExtended.Noble(nobleExtended.bindings);
-
-    this.isScanning = true;
-    // if nothing is done after 6s stop everything
-    //this.timeout = setTimeout(this._onTimeOut.bind(this, noble), 6000);
-
-    // wait for ble device before to start scanning for lamp
-    noble.on('stateChange', (state) => this._onStateChange(state, noble));
-
-    // then try to send command
-    noble.on('discover', (peripheral) => this._onPeripheralDiscover(peripheral, noble));
-
-    // start noble for scanning
-    noble.start();
   }
 
   lightOn() {
     this.logger("lightOn...");
-    this.commandsQueue.push(SEQUENCE_ON);
-    this.lightCommandDebounce();
+    this._sendCommand(SEQUENCE_ON);
   }
 
   lightOff() {
     this.logger("lightOff...");
-    this.commandsQueue.push(SEQUENCE_OFF);
-    this.lightCommandDebounce();
+    this._sendCommand(SEQUENCE_OFF);
   }
 
   lightBrightness(intensity) {
@@ -66,8 +37,7 @@ module.exports = class AwoxSmartLight {
     SEQUENCE_BRIGHNTESS[9] = 0x00;
     SEQUENCE_BRIGHNTESS[9] = this._checksum(SEQUENCE_BRIGHNTESS);
 
-    this.commandsQueue.push(SEQUENCE_BRIGHNTESS.concat(TAIL));
-    this.lightCommandDebounce();
+    this._sendCommand(SEQUENCE_BRIGHNTESS.concat(TAIL));
   }
 
   lightWhite(temperature) {
@@ -80,8 +50,7 @@ module.exports = class AwoxSmartLight {
     SEQUENCE_WHITE[10] = 0x00;
     SEQUENCE_WHITE[10] = this._checksum(SEQUENCE_WHITE);
 
-    this.commandsQueue.push(SEQUENCE_WHITE.concat(TAIL));
-    this.lightCommandDebounce();
+    this._sendCommand(SEQUENCE_WHITE.concat(TAIL));
   }
 
   lightWhiteReset() {
@@ -92,8 +61,7 @@ module.exports = class AwoxSmartLight {
     SEQUENCE_WHITE_RESET[15] = 0x00;
     SEQUENCE_WHITE_RESET[15] = this._checksum(SEQUENCE_WHITE_RESET);
 
-    this.commandsQueue.push(SEQUENCE_WHITE_RESET.concat(TAIL));
-    this.lightCommandDebounce();
+    this._sendCommand(SEQUENCE_WHITE_RESET.concat(TAIL));
   }
 
   lightRgbReset() {
@@ -104,8 +72,7 @@ module.exports = class AwoxSmartLight {
     SEQUENCE_RGB_RESET[15] = 0x00;
     SEQUENCE_RGB_RESET[15] = this._checksum(SEQUENCE_WHITE_RESET);
 
-    this.commandsQueue.push(SEQUENCE_WHITE_RESET.concat(TAIL));
-    this.lightCommandDebounce();
+    this._sendCommand(SEQUENCE_WHITE_RESET.concat(TAIL));
   }
 
   lightRgb(r, g, b, special) {
@@ -121,136 +88,27 @@ module.exports = class AwoxSmartLight {
     SEQUENCE_RGB[15] = 0x00;
     SEQUENCE_RGB[15] = this._checksum(SEQUENCE_RGB);
 
-    this.commandsQueue.push(SEQUENCE_RGB.concat(TAIL));
-    this.lightCommandDebounce();
+    this._sendCommand(SEQUENCE_RGB.concat(TAIL));
   }
 
   _checksum(data) {
       return ((data.slice(1).reduce(function(a, b) { return (a + b); }) + 85) & 0xFF);
   }
 
-  _onPeripheralDiscover(peripheral, noble) {
-      var lampMac = this.lampMac;
-      if(peripheral.id.trim().toLowerCase() == lampMac.trim().toLowerCase()) {
-          this.logger("found lamp with id:", peripheral.id, ". and name: ", peripheral.advertisement.localName);
-          this.isScanning = false;
-          noble.stopScanning();
-          peripheral.connect((error) => {
-              if(error) {
-                this.logger('connected to peripheral: ' + peripheral.uuid + ' with error ' + error);
-                return;
-              }
-
-              this.logger('connected to peripheral: ' + peripheral.uuid);
-
-              peripheral.discoverServices(['fff0'], (error, services) => {
-                if(error) {
-                  this.logger('cant find service...');
-                  this.logger('the following error occured:' + error);
-                  if(this.commandsQueue.length === 0)
-                    peripheral.disconnect();
-                  return;
-                }
-
-                if(!services || services.length === 0){
-                  this.logger('cant find service...');
-                  if(this.commandsQueue.length === 0)
-                    peripheral.disconnect();
-                  return;
-                }
-
-                this.logger('found service fff0...');
-
-                services[0].discoverCharacteristics(['fff1'], (error, characteristics) => {
-                    if(error) {
-                      this.logger('cant find characteristic...');
-                      this.logger('the following error occured:' + error);
-                      if(this.commandsQueue.length === 0)
-                        peripheral.disconnect();
-                      return;
-                    }
-
-                    if(!characteristics || characteristics.length === 0) {
-                      this.logger('cant find characteristic...');
-                      if(this.commandsQueue.length === 0)
-                        peripheral.disconnect();
-                      return;
-                    }
-
-                    this.logger('found characteristic fff1');
-
-                    var commandCharacteristic = characteristics[0];
-                    var index = 0;
-                    var sentIndex = 1;
-                    var commandsCount = this.commandsQueue.length;
-                    var writeCommand = (command) => {
-                      commandCharacteristic.write(new Buffer(command), false, (error) => {
-                          if(error) {
-                            this.logger('cant send command');
-                            this.logger('the following error occured:' + error);
-                          } else {
-                            this.logger('command sent:' + command);
-                          }
-
-                          if(sentIndex >= commandsCount){
-                            this.logger('all commands sent, disconnect!');
-                            peripheral.disconnect();
-                          }
-
-                          sentIndex++;
-                      });
-                    };
-                    while(this.commandsQueue.length > 0) {
-                        var command = this.commandsQueue.shift();
-                        setTimeout(((command) => () => writeCommand(command))(command), 50 * index);
-                        index++;
-                    }
-                });
-              });
-          });
-
-          peripheral.on('disconnect', () => {
-              this.logger("disconnected", peripheral.advertisement.localName);
-              clearTimeout(this.timeout);
-              peripheral.removeAllListeners();
-              noble.removeAllListeners();
-              noble.stop();
-          });
-      }
+  _hexToAscii(data) {
+    var b = Buffer.from(data);
+    return b.toString('hex').toUpperCase();
   }
 
-  _onStateChange(state, noble) {
-      if (state === 'poweredOn') {
-        this.logger('start scanning');
-        noble.startScanning();
-      } else {
-        this.logger('State change to ' + state + '. Stop scanning');
-        noble.stopScanning();
-      }
-  }
-
-  _onTimeOut(noble) {
-    this.isScanning = false;
-    this.logger("timeout trying to connect to smartlight...");
-    noble.stopScanning();
-    noble.removeAllListeners();
-    noble.stop();
-    //delete this.noble;
-  }
-
-  _debounce(func, wait, immediate) {
-  	var timeout;
-  	return () => {
-  		var context = this, args = arguments;
-  		var later = () => {
-  			timeout = null;
-  			if (!immediate)
-          func.apply(context, args);
-  		};
-  		var callNow = immediate && !timeout;
-  		clearTimeout(timeout);
-  		timeout = setTimeout(later, wait);
-  		if (callNow) func.apply(context, args);
-  	};
+  _sendCommand(data) {
+    var cmd = 'gatttool -b ' + this.lampMac + ' --char-write-req -a 0x001D -n ' + this._hexToAscii(data)
+    exec(cmd,
+      function (error, stdout, stderr) {
+          console.log('stdout: ' + stdout);
+          console.log('stderr: ' + stderr);
+          if (error !== null) {
+               console.log('exec error: ' + error);
+          }
+      });
   }
 }
