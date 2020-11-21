@@ -1,4 +1,4 @@
-var exec = require('child_process').exec;
+var execSync = require('child_process').execSync;
 
 const HEADER = [0xAA, 0x0A, 0xFC, 0x3A, 0x86, 0x01];
 const TAIL = [0x0D];
@@ -34,8 +34,8 @@ module.exports = class AwoxSmartLight {
     // random
     SEQUENCE_BRIGHNTESS[9] = Math.floor(Math.random() * 0xFF) >>> 0;
     // checksum
-    SEQUENCE_BRIGHNTESS[9] = 0x00;
-    SEQUENCE_BRIGHNTESS[9] = this._checksum(SEQUENCE_BRIGHNTESS);
+    SEQUENCE_BRIGHNTESS[10] = 0x00;
+    SEQUENCE_BRIGHNTESS[10] = this._checksum(SEQUENCE_BRIGHNTESS);
 
     this._sendCommand(SEQUENCE_BRIGHNTESS.concat(TAIL));
   }
@@ -102,13 +102,16 @@ module.exports = class AwoxSmartLight {
 
   _sendCommand(data) {
     var cmd = 'gatttool -b ' + this.lampMac + ' --char-write-req -a 0x001D -n ' + this._hexToAscii(data)
-    exec(cmd,
-      function (error, stdout, stderr) {
-          console.log('stdout: ' + stdout);
-          console.log('stderr: ' + stderr);
-          if (error !== null) {
-               console.log('exec error: ' + error);
-          }
-      });
+    try {
+      execSync(cmd,
+        function (error, stdout, stderr) {
+            if (error !== null) {
+              console.log('stdout: ' + stdout);
+              console.log('stderr: ' + stderr);
+              console.log('[ERROR] Command failed: ' + error);
+            }
+        });
+    } catch (err) {
+    }
   }
 }
